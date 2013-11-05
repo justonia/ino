@@ -29,28 +29,7 @@ from ino.exc import Abort
 from ino.filters import colorize
 from ino.environment import Environment
 from ino.argparsing import FlexiFormatter
-
-__PASSTHROUGH_EXCEPTIONS = (SyntaxError, SystemExit, KeyboardInterrupt)
-
-def should_use_debugger():
-    is_interactive_terminal = sys.stdout.isatty() and sys.stdin.isatty() and sys.stderr.isatty()
-    ino_debugger = "INO_DEBUGGER" in os.environ
-    return is_interactive_terminal and ino_debugger
-
-def auto_debug_break(type, value, tb):
-    import traceback, ino.debugger
-
-    if type in __PASSTHROUGH_EXCEPTIONS:
-        traceback.print_exception(type, value, tb)
-        sys.exit(1)
-
-    if not should_use_debugger():
-        sys.__excepthook__(type, value, tb)
-        return
-
-    traceback.print_exception(type, value, tb)
-
-    ino.debugger.pm(tb)
+from ino.debugger import auto_debug_break, should_use_debugger
 
 def main():
     sys.excepthook = auto_debug_break
@@ -99,7 +78,7 @@ def main():
 
         args.func(args)
     except Abort as exc:
-        if should_use_debugger(exc):
+        if should_use_debugger():
             raise
         else:
             print colorize(str(exc), 'red')
