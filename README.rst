@@ -1,3 +1,10 @@
+Fork Notes
+==========
+
+Trying to fix up ino so that it works with Arduino 1.5.x. I plan
+on breaking backwards compatibility with 1.0 with these changes.
+
+
 ===
 Ino
 ===
