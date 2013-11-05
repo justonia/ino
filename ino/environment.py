@@ -21,7 +21,7 @@ from glob import glob
 from ino.filters import colorize
 from ino.utils import format_available_options
 from ino.exc import Abort
-
+from ino.utils import list_subdirs
 
 class Version(namedtuple('Version', 'major minor build')):
 
@@ -185,26 +185,44 @@ class Environment(dict):
         if 'board_models' in self:
             return self['board_models']
 
-        boards_txt = self.find_arduino_file('boards.txt', ['hardware', 'arduino'], 
-                                            human_name='Board description file (boards.txt)')
-
+        hardware_dir = self.find_arduino_dir('arduino', ['hardware'],
+                                             human_name='Hardware architecture directory (hardware/arduino)')
+        hardware_dir = os.path.join(hardware_dir, "arduino")
+        
         self['board_models'] = BoardModels()
         self['board_models'].default = self.default_board_model
-        with open(boards_txt) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                multikey, val = line.split('=')
-                multikey = multikey.split('.')
 
-                subdict = self['board_models']
-                for key in multikey[:-1]:
-                    if key not in subdict:
-                        subdict[key] = {}
-                    subdict = subdict[key]
+        # 1.5x avr/boards.txt contains a menu.cpu key, while the sam one does not for some reason.
+        board_key_skip_re = re.compile("(^menu\..*)")
 
-                subdict[multikey[-1]] = val
+        for subdir in list_subdirs(hardware_dir):
+            architecture = os.path.split(subdir)[1]
+            boards_txt = self.find_file("boards.txt ({})".format(architecture), items=["boards.txt"], places=[subdir],
+                                        human_name='Board description file (boards.txt) for architecture ' + architecture)
+            with open(boards_txt) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    multikey, val = line.split('=')
+                    if board_key_skip_re.match(multikey):
+                        continue
+                    multikey = multikey.split('.')
+
+                    subdict = self['board_models']
+                    for key in multikey[:-1]:
+                        # 1.5.x for some dumb reason added keys like:
+                        #       atmega328diecimila.menu.cpu.atmega328=ATmega328
+                        #       atmega328diecimila.menu.cpu.atmega328.upload.maximum_size=30720
+                        #
+                        # It's hacky, but here we force a dict type if we encounter a nested key
+                        # that already has a non-dict value. In practice they only seem to have
+                        # done this with menu names.
+                        if key not in subdict or not isinstance(subdict[key], dict):
+                            subdict[key] = {}
+                        subdict = subdict[key]
+
+                    subdict[multikey[-1]] = val
 
         return self['board_models']
 
