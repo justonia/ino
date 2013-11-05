@@ -210,6 +210,12 @@ class Environment(dict):
                     multikey = multikey.split('.')
 
                     subdict = self['board_models']
+
+                    # Populate the architecture so we know for future reference where to look
+                    if multikey[0] not in subdict:
+                        subdict[multikey[0]] = {}
+                        subdict[multikey[0]]["arch"] = architecture
+
                     for key in multikey[:-1]:
                         # 1.5.x for some dumb reason added keys like:
                         #       atmega328diecimila.menu.cpu.atmega328=ATmega328
