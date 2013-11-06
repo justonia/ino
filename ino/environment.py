@@ -181,6 +181,41 @@ class Environment(dict):
             places = self.arduino_dist_dir_guesses
         return [os.path.join(p, *dirname_parts) for p in places]
 
+    def _load_settings_file(self, root, file, data_on_root=[]):
+        # 1.5x avr/boards.txt contains a menu.cpu key, while the sam one does not for some reason.
+        board_key_skip_re = re.compile("(^menu\..*)")
+
+        for line in file:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            multikey, val = line.split('=', 1)
+            if board_key_skip_re.match(multikey):
+                continue
+            multikey = multikey.split('.')
+
+            subdict = root
+
+            # Populate the architecture so we know for future reference where to look
+            if multikey[0] not in subdict:
+                subdict[multikey[0]] = {}
+                for k,v in data_on_root:
+                    subdict[multikey[0]][k] = v
+
+            for key in multikey[:-1]:
+                # 1.5.x for some dumb reason added keys like:
+                #       atmega328diecimila.menu.cpu.atmega328=ATmega328
+                #       atmega328diecimila.menu.cpu.atmega328.upload.maximum_size=30720
+                #
+                # It's hacky, but here we force a dict type if we encounter a nested key
+                # that already has a non-dict value. In practice they only seem to have
+                # done this with menu names.
+                if key not in subdict or not isinstance(subdict[key], dict):
+                    subdict[key] = {}
+                subdict = subdict[key]
+
+            subdict[multikey[-1]] = val
+
     def board_models(self):
         if 'board_models' in self:
             return self['board_models']
@@ -191,45 +226,14 @@ class Environment(dict):
         
         self['board_models'] = BoardModels()
         self['board_models'].default = self.default_board_model
-
-        # 1.5x avr/boards.txt contains a menu.cpu key, while the sam one does not for some reason.
-        board_key_skip_re = re.compile("(^menu\..*)")
-
+        
         for subdir in list_subdirs(hardware_dir):
             architecture = os.path.split(subdir)[1]
             boards_txt = self.find_file("boards.txt ({})".format(architecture), items=["boards.txt"], places=[subdir],
                                         human_name='Board description file (boards.txt) for architecture ' + architecture)
             with open(boards_txt) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    multikey, val = line.split('=')
-                    if board_key_skip_re.match(multikey):
-                        continue
-                    multikey = multikey.split('.')
-
-                    subdict = self['board_models']
-
-                    # Populate the architecture so we know for future reference where to look
-                    if multikey[0] not in subdict:
-                        subdict[multikey[0]] = {}
-                        subdict[multikey[0]]["arch"] = architecture
-
-                    for key in multikey[:-1]:
-                        # 1.5.x for some dumb reason added keys like:
-                        #       atmega328diecimila.menu.cpu.atmega328=ATmega328
-                        #       atmega328diecimila.menu.cpu.atmega328.upload.maximum_size=30720
-                        #
-                        # It's hacky, but here we force a dict type if we encounter a nested key
-                        # that already has a non-dict value. In practice they only seem to have
-                        # done this with menu names.
-                        if key not in subdict or not isinstance(subdict[key], dict):
-                            subdict[key] = {}
-                        subdict = subdict[key]
-
-                    subdict[multikey[-1]] = val
-
+                self._load_settings_file(self['board_models'], f, [('arch', architecture)])
+        
         return self['board_models']
 
     def board_model(self, key):
@@ -244,6 +248,26 @@ class Environment(dict):
 
         parser.add_argument('-m', '--board-model', metavar='MODEL', 
                             default=self.default_board_model, help=help)
+
+    def platform_settings(self):
+        if 'platform_settings' in self:
+            return self['platform_settings']
+
+        hardware_dir = self.find_arduino_dir('arduino', ['hardware'],
+                                             human_name='Hardware architecture directory (hardware/arduino)')
+        hardware_dir = os.path.join(hardware_dir, "arduino")
+        
+        self['platform_settings'] = {}
+        
+        for subdir in list_subdirs(hardware_dir):
+            architecture = os.path.split(subdir)[1]
+            platform_txt = self.find_file("platform.txt ({})".format(architecture), items=["platform.txt"], places=[subdir],
+                                          human_name='Platform description file (platform.txt) for architecture ' + architecture)
+            with open(platform_txt) as f:
+                self['platform_settings'][architecture] = {} 
+                self._load_settings_file(self['platform_settings'][architecture], f)
+        
+        return self['platform_settings']
 
     def add_arduino_dist_arg(self, parser):
         parser.add_argument('-d', '--arduino-dist', metavar='PATH', 
