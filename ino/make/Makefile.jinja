@@ -56,14 +56,14 @@ include {{ target.path|depsname }}
 {% set elf = e.build_dir|pjoin('firmware.elf') %}
 {{ elf }} : {{ objs }}
 	@echo {{ 'Linking firmware.elf'|colorize('green') }}
-	{{v}}{{ e.cc }} {{ e.ldflags }} -o $@ $^ -lm
+	{{v}}{{ e.ld }} {{ e.ldflags }} -o $@ -lm {{ e.ld_pre }} {{ e.ld_variant_system_lib }} $^ {{ e.ld_post }}
 
 {#
  #   elf -> hex
  #}
 {{ e.hex_path }} : {{ elf }}
 	@echo {{ ('Converting to ' ~ e.hex_filename)|colorize('green') }}
-	{{v}}{{ e.objcopy }} -O ihex -R .eeprom $^ $@
+	{{v}}{{ e.objcopy }} {{ e.objcopyflags }} $^ $@
 
 include {{ e.deps }}
 
