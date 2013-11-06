@@ -36,9 +36,9 @@ class FileMap(OrderedDict):
     def target_paths(self):
         return SpaceList(x.path for x in self.targets())
 
-
-def list_subdirs(dirname, recursive=False, exclude=[]):
-    entries = [e for e in os.listdir(dirname) if e not in exclude and not e.startswith('.')]
+def list_subdirs(dirname, recursive=False, exclude=[], include=None):
+    entries = [e for e in os.listdir(dirname) 
+               if e not in exclude and (not include or e in include) and not e.startswith('.') and not e.startswith('_')]
     paths = [os.path.join(dirname, e) for e in entries]
     dirs = filter(os.path.isdir, paths)
     if recursive:
