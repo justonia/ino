@@ -5,6 +5,7 @@ from __future__ import absolute_import
 import os.path
 import subprocess
 import platform
+import shlex
 
 from time import sleep
 from serial import Serial
@@ -37,16 +38,24 @@ class Upload(Command):
 
     def discover(self):
         self.e.find_tool('stty', ['stty'])
-        if platform.system() == 'Linux':
-            self.e.find_arduino_tool('avrdude', ['hardware', 'tools'])
+        
+        platform_settings = self.e.platform_settings()
+        tools = []
 
-            conf_places = self.e.arduino_dist_places(['hardware', 'tools'])
-            conf_places.append('/etc/avrdude') # fallback to system-wide conf on Fedora
-            self.e.find_file('avrdude.conf', places=conf_places)
+        tools.append(os.path.join(platform_settings['sam']['tools']['bossac']['path'],
+                                  str(platform_settings['sam']['tools']['bossac']['cmd'])))
+
+        if platform.system() == 'Linux':
+            tools.append(platform_settings['avr']['tools']['avrdude']['cmd']['path']['linux'])
+            tools.append(platform_settings['avr']['tools']['avrdude']['config']['path']['linux'])
         else:
-            self.e.find_arduino_tool('avrdude', ['hardware', 'tools', 'avr', 'bin'])
-            self.e.find_arduino_file('avrdude.conf', ['hardware', 'tools', 'avr', 'etc'])
-    
+            tools.append(str(platform_settings['avr']['tools']['avrdude']['cmd']['path']))
+            tools.append(str(platform_settings['avr']['tools']['avrdude']['config']['path']))
+
+        for tool_path in tools:
+            tool_path_components = tool_path.replace('{runtime.ide.path}/', '').split('/')
+            self.e.find_arduino_tool(tool_path_components[-1], tool_path_components[:-1])
+
     def run(self, args):
         self.discover()
         port = args.serial_port or self.e.guess_serial_port()
@@ -77,14 +86,14 @@ class Upload(Command):
         s.setDTR(True)
         s.close()
 
-        # Need to do a little dance for Leonardo and derivatives:
-        # open then close the port at the magic baudrate (usually 1200 bps) first
+        # Need to do a little dance for some boards that require it.
+        # Open then close the port at the magic baudrate (usually 1200 bps) first
         # to signal to the sketch that it should reset into bootloader. after doing
-        # this wait a moment for the bootloader to enumerate. On Windows, also must
-        # deal with the fact that the COM port number changes from bootloader to
-        # sketch.
-        if board['bootloader']['path'] == "caterina":
-            caterina_port = None
+        # this, for some devices wait a moment for the bootloader to enumerate. 
+        # On Windows, also must deal with the fact that the COM port number 
+        # changes from bootloader to sketch.
+        import ino.debugger;ino.debugger.set_trace()
+        if 'use_1200bps_touch' in board['upload'] and board['upload']['use_1200bps_touch'] == 'true':
             before = self.e.list_serial_ports()
             if port in before:
                 ser = Serial()
@@ -100,35 +109,61 @@ class Upload(Command):
                 if platform.system() != 'Darwin':
                     sleep(0.3)
 
-            elapsed = 0
-            enum_delay = 0.25
-            while elapsed < 10:
-                now = self.e.list_serial_ports()
-                diff = list(set(now) - set(before))
-                if diff:
-                    caterina_port = diff[0]
-                    break
+            if 'wait_for_upload_port' in board['upload'] and board['upload']['wait_for_upload_port'] == 'true':
+                caterina_port = None
+                elapsed = 0
+                enum_delay = 0.25
+                while elapsed < 10:
+                    now = self.e.list_serial_ports()
+                    diff = list(set(now) - set(before))
+                    if diff:
+                        caterina_port = diff[0]
+                        break
 
-                before = now
-                sleep(enum_delay)
-                elapsed += enum_delay
+                    before = now
+                    sleep(enum_delay)
+                    elapsed += enum_delay
 
-            if caterina_port == None:
-                raise Abort("Couldn’t find a Leonardo on the selected port. "
-                            "Check that you have the correct port selected. "
-                            "If it is correct, try pressing the board's reset "
-                            "button after initiating the upload.")
+                if caterina_port == None:
+                    raise Abort("Couldn’t find a Leonardo on the selected port. "
+                                "Check that you have the correct port selected. "
+                                "If it is correct, try pressing the board's reset "
+                                "button after initiating the upload.")
 
-            port = caterina_port
+                port = caterina_port
 
-        # call avrdude to upload .hex
-        subprocess.call([
-            self.e['avrdude'],
-            '-C', self.e['avrdude.conf'],
-            '-p', board['build']['mcu'],
-            '-P', port,
-            '-c', protocol,
-            '-b', board['upload']['speed'],
-            '-D',
-            '-U', 'flash:w:%s:i' % self.e['hex_path'],
-        ])
+        platform_settings = self.e.platform_settings()
+
+        class AttributeDict(dict): 
+            __getattr__ = dict.__getitem__
+
+        if board['upload']['tool'] == 'bossac':
+            bossac = self.e['bossac']
+            upload_args = AttributeDict([
+                ('path', os.path.split(bossac)[0]),
+                ('cmd', os.path.split(bossac)[1]),
+                ('upload', AttributeDict([
+                    ('verbose', ''),
+                    ('native_usb', board['upload']['native_usb'])])),
+                ('serial', AttributeDict([('port', AttributeDict([('file', os.path.split(port)[1])]))])),
+                ('hex_file', self.e['hex_path'])
+            ])
+            upload_pattern = platform_settings['sam']['tools']['bossac']['upload']['pattern']
+            upload_pattern = upload_pattern.replace('{build.path}/{build.project_name}.bin', '{hex_file}')
+            print " ".join(shlex.split(upload_pattern.format(**upload_args)))
+            subprocess.call(shlex.split(upload_pattern.format(**upload_args)))
+            #tools.bossac.upload.pattern="{path}/{cmd}" {upload.verbose} 
+            # --port={serial.port.file} -U {upload.native_usb} -e -w -v -b "{build.path}/{build.project_name}.bin" -R
+
+        elif board['bootloader']['tool'] == 'avrdude':
+            # call avrdude to upload .hex
+            subprocess.call([
+                self.e['avrdude'],
+                '-C', self.e['avrdude.conf'],
+                '-p', board['build']['mcu'],
+                '-P', port,
+                '-c', protocol,
+                '-b', board['upload']['speed'],
+                '-D',
+                '-U', 'flash:w:%s:i' % self.e['hex_path'],
+            ])
