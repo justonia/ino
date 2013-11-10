@@ -198,20 +198,18 @@ class Environment(dict):
 
             # Populate the architecture so we know for future reference where to look
             if multikey[0] not in subdict:
-                subdict[multikey[0]] = {}
+                subdict[multikey[0]] = SettingsDict()
                 for k,v in data_on_root:
                     subdict[multikey[0]][k] = v
 
             for key in multikey[:-1]:
-                # 1.5.x for some dumb reason added keys like:
-                #       atmega328diecimila.menu.cpu.atmega328=ATmega328
-                #       atmega328diecimila.menu.cpu.atmega328.upload.maximum_size=30720
-                #
-                # It's hacky, but here we force a dict type if we encounter a nested key
-                # that already has a non-dict value. In practice they only seem to have
-                # done this with menu names.
-                if key not in subdict or not isinstance(subdict[key], dict):
-                    subdict[key] = {}
+                if key not in subdict:
+                    subdict[key] = SettingsDict()
+                elif not isinstance(subdict[key], dict):
+                    d = SettingsDict()
+                    d.value = subdict[key]
+                    subdict[key] = d
+
                 subdict = subdict[key]
 
             subdict[multikey[-1]] = val
@@ -338,6 +336,13 @@ class Environment(dict):
 
         return self['arduino_lib_version']
 
+class SettingsDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(SettingsDict, self).__init__(*args, **kwargs)
+        self.value = ''
+
+    def __str__(self):
+        return self.value 
 
 class BoardModels(OrderedDict):
     def format(self):
