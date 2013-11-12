@@ -18,12 +18,6 @@ build process to 3-rd party IDE.
 Ino is based on ``make`` to perform builds. However Makefiles are
 generated automatically and you'll never see them if you don't want to.
 
-Fork Notes
-==========
-
-Trying to fix up ino so that it works with Arduino 1.5.x. I plan
-on breaking backwards compatibility with 1.0 with these changes.
-
 Features
 ========
 
