@@ -92,7 +92,6 @@ class Upload(Command):
         # this, for some devices wait a moment for the bootloader to enumerate. 
         # On Windows, also must deal with the fact that the COM port number 
         # changes from bootloader to sketch.
-        import ino.debugger;ino.debugger.set_trace()
         if 'use_1200bps_touch' in board['upload'] and board['upload']['use_1200bps_touch'] == 'true':
             before = self.e.list_serial_ports()
             if port in before:
